@@ -1,0 +1,54 @@
+---
+description: Strapi 5 CMS (ucl-web-cms). Content types for UCL + UCTalent. Schema changes require consumer contract check.
+globs: ucl-web-cms/**/*
+alwaysApply: false
+---
+
+# Strapi CMS — ucl-web-cms
+
+Repo: `ucl-web-cms/` — Strapi 5 headless CMS.
+
+## Structure
+
+```txt
+ucl-web-cms/src/api/<type>/
+├── content-types/<type>/schema.json
+├── controllers/
+├── routes/
+└── services/
+```
+
+## Consumers
+
+| Consumer | Service files | UCTalent types |
+|----------|---------------|----------------|
+| `ucl-web/` | `src/services/cmsService.ts` | — |
+| `uc-frontend-nextjs-v1/` | `src/services/strapiArticles.ts`, `strapiFaq.ts`, `strapiRoadmap.ts` | articles, FAQ, roadmap, TOS, privacy |
+
+## Schema rules
+
+- Edit `schema.json` for field changes; run `pnpm build` to validate
+- Match existing field types: CKEditor (`plugin::ckeditor5.CKEditor`) vs `blocks`
+- Keep `draftAndPublish` consistent with consumer `publicationState`
+- API slugs are pluralized (`uc-talent-articles`, `insights`, …)
+
+## CMS contract gate
+
+Before completing a schema or API change:
+
+1. Confirm API slug matches consumer `strapiFind` path
+2. Confirm field names match consumer parsers
+3. Confirm `populate` includes relations/media consumers expect
+4. Test media URLs (GCS) if adding media fields
+
+## Do not
+
+- Change production DB schema without user approval
+- Rename fields without updating all consumers
+- Add content types without documenting consumer mapping in ticket report
+
+## Verification
+
+```bash
+cd ucl-web-cms && pnpm build
+```

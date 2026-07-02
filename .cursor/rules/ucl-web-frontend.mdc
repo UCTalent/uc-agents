@@ -1,0 +1,43 @@
+---
+description: Unchain Labs site (ucl-web). Next.js 16, Tailwind 4, shadcn/radix. Strapi consumer. Not MUI.
+globs: ucl-web/**/*.{ts,tsx,js,jsx}
+alwaysApply: false
+---
+# UCL Web — Frontend Standards
+
+Repo: `ucl-web/` — Unchain Labs marketing site.
+
+## Stack
+
+| Layer | Choice |
+|-------|--------|
+| Framework | Next.js 16 App Router |
+| UI | shadcn/radix + Tailwind CSS 4 |
+| i18n | `next-intl` |
+| Data | `@tanstack/react-query`, axios |
+| CMS | Strapi via `@/lib/strapi`, `@/services/cmsService` |
+
+## Do not
+
+- Use MUI or `mui-frontend` skill
+- Add shadcn components outside `src/components/ui/` pattern without matching `components.json`
+- Hardcode CMS content that belongs in `ucl-web-cms/`
+
+## CMS integration
+
+- API client: `ucl-web/src/lib/strapi.ts`
+- Parsers: `ucl-web/src/services/cmsService.ts`
+- Blocks renderer: `@strapi/blocks-react-renderer` for `insight.content`
+- Env: `NEXT_PUBLIC_STRAPI_URL`, `NEXT_PUBLIC_STRAPI_API_TOKEN`
+
+## Styling
+
+- Use Tailwind utilities and `cn()` helper
+- Reuse shadcn primitives from `src/components/ui/`
+- Match existing page layout in `src/app/`
+
+## Verification
+
+```bash
+cd ucl-web && pnpm lint && pnpm build
+```

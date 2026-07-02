@@ -1,0 +1,451 @@
+---
+description: UC Talent Backend V2 project structure rule. Applies to uc-talent-backend/src/modules and explains where files belong in DDD Hexagonal modules.
+globs: uc-talent-backend/src/modules/**/*.ts
+alwaysApply: false
+---
+## 1. Module root
+
+Each module should own one bounded context or cohesive feature area.
+
+Example:
+
+```txt
+src/modules/job/
+src/modules/job-application/
+src/modules/talent/
+src/modules/organization/
+src/modules/referral/
+```
+
+Before creating a new module, check if an existing module already owns the responsibility.
+
+Do not create a new module for a small helper.
+
+Do not duplicate responsibility across modules.
+
+---
+
+## 2. Presentation layer
+
+Location:
+
+```txt
+src/modules/<module>/presentation/
+```
+
+Recommended structure:
+
+```txt
+presentation/
+├── http/
+│   ├── controllers/
+│   ├── dtos/
+│   │   ├── requests/
+│   │   └── responses/
+│   └── mappers/
+├── graphql/
+│   ├── resolvers/
+│   ├── inputs/
+│   ├── types/
+│   └── mappers/
+└── guards/
+```
+
+Use only folders that match the module’s existing style.
+
+Presentation owns:
+
+* controllers
+* resolvers
+* request DTOs
+* response DTOs
+* GraphQL inputs/types
+* transport mappers
+* transport guards/decorators
+
+Presentation calls Port In.
+
+Presentation does not access repositories or infrastructure directly.
+
+---
+
+## 3. Application layer
+
+Location:
+
+```txt
+src/modules/<module>/application/
+```
+
+Recommended structure:
+
+```txt
+application/
+├── ports/
+│   ├── in/
+│   └── out/
+├── use-cases/
+├── commands/
+├── queries/
+├── results/
+├── services/
+└── event-handlers/
+```
+
+Application owns:
+
+* use cases
+* commands
+* queries
+* results
+* Port In interfaces
+* Port Out interfaces
+* application services
+* event handlers
+* workflow orchestration
+
+Application does not import:
+
+* request/response DTOs
+* controllers/resolvers
+* ORM entities
+* infrastructure implementations
+
+---
+
+## 4. Domain layer
+
+Location:
+
+```txt
+src/modules/<module>/domain/
+```
+
+Recommended structure:
+
+```txt
+domain/
+├── entities/
+├── value-objects/
+├── services/
+├── events/
+├── errors/
+├── enums/
+└── specifications/
+```
+
+Domain owns:
+
+* entities
+* aggregates
+* value objects
+* domain services
+* domain events
+* domain errors
+* business enums
+* invariants
+
+Domain is pure TypeScript.
+
+Do not put NestJS, TypeORM, GraphQL, HTTP, or database decorators in domain.
+
+---
+
+## 5. Infrastructure layer
+
+Location:
+
+```txt
+src/modules/<module>/infrastructure/
+```
+
+Recommended structure:
+
+```txt
+infrastructure/
+├── persistence/
+│   └── typeorm/
+│       ├── entities/
+│       ├── repositories/
+│       └── mappers/
+├── external/
+├── queue/
+├── storage/
+├── providers/
+└── config/
+```
+
+Infrastructure owns:
+
+* TypeORM entities
+* repository implementations
+* persistence mappers
+* external API adapters
+* queue adapters
+* file/storage adapters
+* provider bindings
+* integration config
+
+Infrastructure implements Port Out.
+
+Infrastructure does not own business rules.
+
+---
+
+## 6. Module composition
+
+Module provider wiring belongs in module files.
+
+Common locations:
+
+```txt
+src/modules/<module>/<module>.module.ts
+src/modules/<module>/infrastructure/providers/
+```
+
+Register:
+
+* controllers/resolvers
+* use cases
+* Port In tokens
+* Port Out implementations
+* repositories
+* adapters
+
+Token example:
+
+```typescript
+export const CREATE_JOB_PORT = Symbol('CREATE_JOB_PORT');
+export const JOB_REPOSITORY_PORT = Symbol('JOB_REPOSITORY_PORT');
+```
+
+Provider example:
+
+```typescript
+{
+  provide: CREATE_JOB_PORT,
+  useClass: CreateJobUseCase,
+}
+```
+
+```typescript
+{
+  provide: JOB_REPOSITORY_PORT,
+  useClass: TypeOrmJobRepository,
+}
+```
+
+---
+
+## 7. File placement by task
+
+### Add REST endpoint
+
+Usually touch:
+
+```txt
+presentation/http/controllers/
+presentation/http/dtos/requests/
+presentation/http/dtos/responses/
+presentation/http/mappers/
+application/ports/in/
+application/use-cases/ or application/queries/
+application/commands/ or application/results/
+```
+
+If persistence is needed:
+
+```txt
+application/ports/out/
+infrastructure/persistence/typeorm/repositories/
+infrastructure/persistence/typeorm/mappers/
+```
+
+---
+
+### Add GraphQL operation
+
+Usually touch:
+
+```txt
+presentation/graphql/resolvers/
+presentation/graphql/inputs/
+presentation/graphql/types/
+presentation/graphql/mappers/
+application/ports/in/
+application/use-cases/ or application/queries/
+```
+
+If persistence is needed, also touch infrastructure persistence.
+
+---
+
+### Add write workflow
+
+Usually touch:
+
+```txt
+application/use-cases/
+application/commands/
+application/results/
+application/ports/in/
+application/ports/out/
+domain/entities/
+domain/value-objects/
+infrastructure/persistence/typeorm/repositories/
+```
+
+---
+
+### Add read/list/detail workflow
+
+Usually touch:
+
+```txt
+application/queries/
+application/results/
+application/ports/in/
+application/ports/out/
+infrastructure/persistence/typeorm/repositories/
+presentation/http or presentation/graphql
+```
+
+---
+
+### Add domain rule
+
+Usually touch:
+
+```txt
+domain/entities/
+domain/value-objects/
+domain/services/
+domain/errors/
+domain/events/
+```
+
+Do not place business invariants in controllers.
+
+---
+
+### Add persistence mapping
+
+Usually touch:
+
+```txt
+infrastructure/persistence/typeorm/entities/
+infrastructure/persistence/typeorm/mappers/
+infrastructure/persistence/typeorm/repositories/
+```
+
+Do not leak ORM entities outside infrastructure.
+
+---
+
+### Add external integration
+
+Usually touch:
+
+```txt
+application/ports/out/
+infrastructure/external/
+infrastructure/providers/
+```
+
+Application depends on the port. Infrastructure implements it.
+
+---
+
+## 8. Shared code
+
+Use shared code only when truly cross-module.
+
+Common locations may be:
+
+```txt
+src/shared/
+src/common/
+src/libs/
+```
+
+Check existing repo structure first.
+
+Do not put module-specific logic into shared.
+
+If only one module uses it, keep it inside that module.
+
+---
+
+## 9. Legacy boundary
+
+Legacy backend code may still exist outside `src/modules/`.
+
+For Jira tickets targeting Backend V2:
+
+* use `src/modules/<module>/`
+* do not add new code to `src/domains/*`
+* do not migrate legacy code unless explicitly requested
+* do not mix legacy entities with V2 domain entities unless required for compatibility and clearly mapped
+
+If the ticket targets legacy behavior, follow existing legacy style and keep the change surgical.
+
+---
+
+## 10. Path aliases
+
+Prefer aliases.
+
+Expected examples:
+
+```typescript
+import type { CreateJobPort } from '@modules/job/application/ports/in/create-job.port';
+import { Job } from '@modules/job/domain/entities/job.entity';
+import { JobOrmEntity } from '@modules/job/infrastructure/persistence/typeorm/entities/job.orm-entity';
+```
+
+Avoid deep relative imports.
+
+Check `uc-talent-backend/tsconfig.json` before inventing aliases.
+
+---
+
+## 11. Multi-repo awareness
+
+This rule applies only to:
+
+```txt
+uc-talent-backend/src/modules/
+```
+
+Do not apply it to:
+
+```txt
+uc-backend-fastapi/
+uc-embedding-fastapi/
+uc-frontend-nextjs-v1/
+uc-ats-react-app/
+```
+
+For fullstack tickets:
+
+* backend defines or confirms API contract
+* frontend consumes the contract
+* testing agent verifies frontend API consumer alignment
+* backend tests must pass or be reported
+
+---
+
+## 12. Placement checklist
+
+Before creating a file, ask:
+
+* Which module owns this behavior?
+* Is this presentation, application, domain, or infrastructure?
+* Is there an existing folder pattern in this module?
+* Can an existing file be edited instead?
+* Does this introduce a new API contract?
+* Does frontend consume this output?
+* Does this require a Port In?
+* Does this require a Port Out?
+* Does persistence need a mapper?
+* Does this require migration/DDL? If yes, ask user first.

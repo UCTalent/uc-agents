@@ -1,0 +1,146 @@
+---
+description: UC Talent FastAPI — uc-backend-fastapi and uc-embedding-fastapi. Thin routes, fat services, Pydantic v2, pytest. Apply when editing src/**/*.py.
+globs: uc-backend-fastapi/**/*.py,uc-embedding-fastapi/**/*.py
+alwaysApply: false
+---
+
+Before exploring routes/services, use **Codegraph MCP** per `uctalent-workflow.mdc` §4.2.
+
+# FastAPI Backend — uc-backend-fastapi
+
+Stack: FastAPI, SQLAlchemy, Pydantic v2, PostgreSQL, Redis, GenAI/GCS, Elasticsearch, queues.
+
+## Architecture
+
+```
+Client → src/api/routes → Depends() → src/services → ORM / Redis / ES / AI (app.state)
+```
+
+| Principle | Rule |
+|-----------|------|
+| Thin routes, fat services | Business logic in `src/services/` only |
+| DI | DB, Redis, GenAI, GCS, queue via `Depends()` + `request.app.state` |
+| Lifespan | Long-lived clients in `lifespan()` in `src/main.py` |
+| Entry | `main:app`; register routers in `src/main.py` |
+
+**Do not** put business logic in routes. **Do not** use `JWTMiddleware` — use `Depends(get_current_user_id)`.
+
+## Where to put code
+
+| What | Path |
+|------|------|
+| Routes | `src/api/routes/{domain}.py` |
+| Depends | `src/api/dependencies.py` |
+| Schemas | `src/schemas/{domain}_schemas.py` |
+| Services | `src/services/{domain}_service.py` |
+| ORM | `src/models/{entity}.py` → register in `models/__init__.py` |
+| Redis | `src/repositories/` (leaderboard) |
+| AI | `src/core/ai/` |
+| Migrations | `migrations/*.sql` — `make migrate-generate name=...` |
+| Tests | `tests/unit/`, `tests/integration/` (prefer over `src/tests/`) |
+
+## Service patterns (pick by domain)
+
+**Pattern A — UPP (functions):** `def get_x(db: Session, user_id: str) -> Tuple[Optional[str], T]` — error string or `None` on success; pass `db` in; `db.rollback()` on failure; no `HTTPException` in service.
+
+**Pattern B — Job rec / AI (classes):** `JobSearchService(es_client, ...)`; domain errors (`CircuitBreakerError`, `RateLimitError`) caught in route.
+
+**Pattern C — CV:** async functions; GenAI client from `Depends(get_genai_client)`.
+
+## API layer
+
+```python
+@router.get("/referral/code", response_model=ReferralCodeResponse)
+def get_referral_code_endpoint(
+    db: Session = Depends(get_db_session),
+    user_id: str = Depends(get_current_user_id),
+):
+    err, data = get_referral_code(db, user_id)
+    if err:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=err)
+    return data
+```
+
+- `APIRouter(prefix=..., tags=..., responses=...)`
+- `HTTPStatus` enum; `dependencies=[Depends(require_api_key)]` when needed
+- Import order: stdlib → third-party → `src.*` (absolute only)
+
+## Auth
+
+| Mechanism | Use |
+|-----------|-----|
+| `require_api_key` | CV, job recommendation |
+| `get_current_user_id` | UPP JWT Bearer |
+| `verify_internal_api_key` | `/v2/internal` webhooks |
+
+## Pydantic (UPP JSON)
+
+| Direction | Case |
+|-----------|------|
+| Responses | camelCase (`referralCode`) |
+| Requests | snake_case (`referral_code`) |
+
+## Data
+
+- UPP tables: `v2_{snake_plural}`; ORM in `src/models/`; use `src.models.Base`
+- Queries: prefer `db.scalar(select(...))`; commit/refresh or rollback
+- Redis leaderboard: **only** via `LeaderboardRepository`
+- Never change prod schema without migration file
+
+## Errors
+
+| Layer | Behavior |
+|-------|----------|
+| Service (UPP) | `(err_str, None)` |
+| Route | `raise HTTPException` if `err` |
+| AI routes | `CircuitBreakerError` → 503, `RateLimitError` → 429 |
+| User messages | `get_translator().t("error.*")`; `Accept-Language` en/vi |
+
+## Config
+
+- `get_settings()` from `src/config/settings.py`
+- Business constants: `src/config/constants.py` — no magic numbers in services
+- Never commit `.env`; guard `API_KEY` in production
+
+## Logging
+
+```python
+logger = logging.getLogger(__name__)
+```
+
+No `basicConfig` in new modules at import time.
+
+## Testing
+
+```bash
+pytest                    # full suite (preferred)
+make format               # black
+make lint                 # flake8
+```
+
+- Files `test_*.py`; classes `Test*`; `@pytest.mark.asyncio` for async
+- Patch full path: `@patch("src.clients.nestjs_internal_client.requests.post")`
+- **Do not** use `make pytest` for full CI parity (only runs `src/tests/`)
+
+## Quality gates
+
+| Command | Action |
+|---------|--------|
+| `make format` | black |
+| `make lint` | flake8 |
+| `make migrate` | run migrations |
+
+## Do not spread (legacy)
+
+- ORM queries directly in routes (move to services when touching)
+- Duplicate `Base` in models
+- New tests under `src/tests/` — use `tests/`
+- `HTTPException` inside UPP service functions
+
+## New feature checklist
+
+1. `src/schemas/{feature}_schemas.py`
+2. `src/services/{feature}_service.py`
+3. `src/models/` + migration if persisted
+4. `src/api/routes/{feature}.py` + register in `main.py`
+5. Tests in `tests/unit/` or `tests/integration/`

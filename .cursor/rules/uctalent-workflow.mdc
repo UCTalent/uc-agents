@@ -1,0 +1,526 @@
+---
+description: UC Talent workspace workflow. Parent folder with sibling repos. Jira MCP first, orchestrator-driven routing, parallel subagents when safe, API contract verification, and command approval.
+alwaysApply: true
+---
+
+# UC Talent Workflow — Parent Workspace
+
+This rule applies to the UC Talent parent workspace.
+
+Open Cursor from the parent folder that contains:
+
+```txt
+AGENTS.md
+.cursor/
+uc-talent-backend/
+uc-backend-fastapi/
+uc-embedding-fastapi/
+uc-frontend-nextjs-v1/
+uc-ats-react-app/
+ucl-web/
+ucl-web-cms/
+```
+
+Do not run agent sessions from a child repo unless the user explicitly wants single-repo work.
+
+---
+
+## 1. Workspace rule
+
+Always use workspace-root paths.
+
+Good:
+
+```txt
+uc-talent-backend/src/modules/...
+uc-backend-fastapi/...
+uc-embedding-fastapi/...
+uc-frontend-nextjs-v1/...
+uc-ats-react-app/...
+ucl-web/...
+ucl-web-cms/src/api/...
+```
+
+Avoid bare paths like:
+
+```txt
+src/...
+app/...
+components/...
+```
+
+unless the current working directory is already confirmed to be the target repo.
+
+One task may touch multiple sibling repos, but only when the Jira ticket requires it.
+
+Do not inspect or edit every repo by default.
+
+---
+
+## 2. Repos
+
+| Repo                     | Purpose                                                 |
+| ------------------------ | ------------------------------------------------------- |
+| `uc-talent-backend/`     | Main Backend V2, NestJS, DDD Hexagonal, `src/modules/*` |
+| `uc-backend-fastapi/`    | FastAPI service for UPP, CV, job recommendation, queues |
+| `uc-embedding-fastapi/`  | FastAPI service for embeddings, vector search, indexing |
+| `uc-frontend-nextjs-v1/` | Main Next.js frontend, MUI, `sx`                        |
+| `uc-ats-react-app/`      | ATS React app, MUI, `sx`                                |
+| `ucl-web/`               | Unchain Labs site — Next.js, Tailwind, shadcn           |
+| `ucl-web-cms/`           | Strapi 5 CMS — UCL + UCTalent content                   |
+
+Do not route UC Talent work to unrelated repos unless the user explicitly says so.
+
+---
+
+## 3. Jira-first workflow
+
+The user normally provides a Jira ticket key, for example:
+
+```txt
+UCT-123
+```
+
+When a Jira key is provided:
+
+1. Use Atlassian/Jira MCP to fetch the ticket.
+2. Read:
+
+   * summary
+   * description
+   * acceptance criteria
+   * relevant comments
+   * linked issues when relevant
+   * attachment list when available
+3. Normalize the ticket into a short implementation scope.
+4. Map each acceptance criterion to the correct repo(s).
+5. Read `docs/` when business logic is involved (see `domain-knowledge.mdc`).
+6. Use **Codegraph MCP** to find symbols, files, and call paths before editing (see §4.2).
+7. Only then implement — do not grep/read the whole repo blindly.
+
+Do not ask the user to paste the full ticket unless Jira MCP is unavailable, blocked, or not logged in.
+
+If Jira MCP fails, clearly report the issue and ask for one of:
+
+```txt
+- fix/login Jira MCP
+- paste ticket text manually as fallback
+```
+
+### Bare Jira key
+
+If the user only writes `UCT-123` or `UC-123`, behave as if they wrote:
+
+```txt
+Use orchestrator for UCT-123.
+
+Fetch the ticket via Jira MCP, summarize the scope, map acceptance criteria to relevant repos,
+inspect only relevant code, implement small diffs, verify frontend/backend contracts if needed,
+ask before running commands, and report verification status.
+```
+
+The user should not need to write “use orchestrator” every time.
+
+---
+
+## 4. Attachment policy
+
+If Jira has attachments:
+
+* list filenames when available
+* do not guess screenshot/image/design content
+* do not implement UI from unseen screenshots
+* if MCP cannot inspect attachment content, ask the user to upload the needed file/image
+
+Attachment metadata is not the same as understanding attachment content.
+
+### 4.1 Attachment fallback — direct Jira API token
+
+The Atlassian Rovo MCP server's OAuth scopes (`read_jira`, `read_confluence`, `search_jira`, etc.)
+do not include attachment binary content. Calling `/rest/api/3/attachment/content/{id}` through
+the MCP-issued token will return `403` even though the ticket itself is readable.
+
+When this happens, do not stop at "ask user to upload." Try the API-token fallback first:
+
+1. Check that `JIRA_API_TOKEN` and `JIRA_EMAIL` are set as environment variables
+   (never read them from a hardcoded value, never print them, never write them to any file).
+2. If both are present, fetch the attachment using Basic Auth instead of the MCP token:
+
+```bash
+   curl -s -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+     -o /tmp/<ticket-key>-<attachment-id>.png \
+     -w "%{http_code}" \
+     "https://uctalent.atlassian.net/rest/api/3/attachment/content/<attachment-id>"
+```
+
+3. Get `<attachment-id>` and filename from the MCP attachment metadata already fetched in
+   Phase 1 (orchestrator) — do not guess the ID.
+4. Save the downloaded file under `/tmp/` only. Never commit it, never move it into the repo.
+5. If the HTTP status is `200`, read/view the downloaded image directly to understand the
+   design before implementing UI.
+6. If the HTTP status is still `403`/`401`, or `JIRA_API_TOKEN`/`JIRA_EMAIL` are not set,
+   fall back to the existing rule: ask the user to upload the file/image manually. Do not
+   attempt other workarounds, do not retry with different auth schemes, and do not guess
+   content from the filename or metadata.
+
+Never ask the user to paste their API token into chat. If the env vars are missing, tell the
+user once which two variable names are needed and let them set up the token outside the
+conversation.
+
+This fallback applies to attachment content only. Ticket summary, description, comments, and
+acceptance criteria continue to come from Jira MCP as the source of truth — do not switch the
+whole ticket-fetch flow to the API token.
+
+---
+
+## 4.2 Codegraph MCP — code navigation
+
+Configured in [`.cursor/mcp.json`](.cursor/mcp.json) as server `codegraph` (`codegraph serve --mcp --path <uc-talent-root>`).
+
+**Use Codegraph before grep/Read loops** when exploring indexed source in sibling repos. It returns symbol locations, verbatim source, call paths, and blast radius in fewer tokens than manual file reading.
+
+### When to use
+
+Use Codegraph when:
+
+* ticket touches an unfamiliar module or symbol
+* you need definition, callers, or flow between symbols (e.g. controller → use case → port)
+* cross-repo: find NestJS consumer, FastAPI route, frontend hook/API client
+* before renaming, changing signatures, or refactoring
+
+Skip when:
+
+* target file and change are already known (copy-only, single-line fix)
+* reading configs, markdown, or non-indexed files — use `Read`
+* project not indexed (no `.codegraph/`) — fall back to Grep/`SemanticSearch`; tell user once they can run `codegraph init` (do not run it yourself)
+
+### Tool selection (MCP server `codegraph`)
+
+| Intent | Tool | Notes |
+|--------|------|-------|
+| Understand an area, architecture, bug, or symbols about to change | **`codegraph_explore`** | **Call FIRST** — usually the only call needed |
+| Flow / how X reaches Y | **`codegraph_explore`** | Pass symbol names spanning the flow |
+| Locate symbol by name only | `codegraph_search` | Locations + kind; no source |
+| What calls this? / refactor blast radius | `codegraph_callers` | All call sites; pass `file` if name is overloaded |
+| One symbol before edit | `codegraph_node` | `includeCode: true` + caller/callee trail |
+| Read a source file | `codegraph_node` | Pass `file` only — prefer over `Read` for indexed `.ts`/`.py`/`.tsx` |
+
+### UC Talent examples
+
+```txt
+codegraph_explore query="CreateJobUseCase JobController uc-talent-backend"
+codegraph_explore query="get_referral_code uc-backend-fastapi routes"
+codegraph_explore query="useApplications manual application uc-ats-react-app"
+codegraph_callers symbol="CreateJobUseCase" file="uc-talent-backend/src/modules/job/..."
+```
+
+### Anti-patterns
+
+* Do not grep-first when looking up a symbol by name — use `codegraph_search` or `codegraph_explore`
+* Do not re-`Read` files whose source Codegraph already returned in the same turn
+* Do not chain `codegraph_search` + multiple `codegraph_node` — one `codegraph_explore` is enough for an area
+* After local edits, if response shows staleness banner for a file — `Read` that file only
+
+### Explore order (with domain docs)
+
+1. Jira MCP → `docs/INDEX.md`, `docs/OWNERSHIP.md`, `docs/domains/<module>/`
+2. **Codegraph MCP** — find files/symbols/call paths
+3. Open/edit files → repo rules activate via globs
+4. Implement via skill (`implement-backend`, …)
+
+---
+
+## 5. Orchestrator rule
+
+Use `orchestrator` as the default entrypoint for Jira tickets.
+
+The orchestrator must:
+
+1. fetch Jira through MCP
+2. parse summary, description, AC, comments, attachments
+3. read `docs/` when business logic is involved
+4. use **Codegraph MCP** to explore symbols/files before delegating (§4.2)
+5. route work to relevant repo(s)
+6. decide parallel vs sequential execution
+7. spawn focused subagents (pass `codegraph_hints`: symbols, files, call paths)
+8. verify frontend/backend API contracts
+9. call `testing` for backend and contract verification
+10. aggregate the final report
+
+Do not let implementation agents independently guess ticket scope.
+
+The orchestrator owns scope, routing, contract alignment, and final reporting.
+
+For fullstack tickets, the orchestrator may delegate to `fullstack-orchestrator` (`.cursor/agents/fullstack-orchestrator.md`).
+
+### Skills and agents index
+
+Load only what the ticket needs — do not read every skill/rule upfront.
+
+| Work type | Skill | Rule(s) | Agent |
+| --------- | ----- | ------- | ----- |
+| Cross-repo Jira ticket | — | this file | `orchestrator` |
+| Fullstack coordination | — | this file | `fullstack-orchestrator` |
+| Verification | — | §9–10 below | `testing` |
+| NestJS Backend V2 | `implement-backend` | `backend-architecture`, `backend-coding-standards`, `backend-project-architechture` | — |
+| FastAPI | `implement-fastapi` | `backend-fastapi` | — |
+| MUI frontend | `implement-frontend`, `mui-frontend` | `frontend-coding-standards` | — |
+| Unchain Labs site | `implement-ucl-web` | `ucl-web-frontend` | — |
+| Strapi CMS | `implement-strapi-cms` | `strapi-cms` | — |
+| Domain / ownership | — | `domain-knowledge` + `docs/` | — |
+
+All paths above are under `.cursor/`.
+
+---
+
+## 6. Parallel subagent rule
+
+Use parallel subagents only when repo work is independent.
+
+Parallel is allowed when:
+
+```txt
+- frontend UI-only work does not depend on backend contract
+- FastAPI work is independent from frontend/backend
+- two repos change unrelated behavior
+```
+
+Sequential is required when:
+
+```txt
+- backend creates or changes an API consumed by frontend
+- backend response shape affects frontend UI
+- backend enum/status values affect frontend behavior
+- frontend form payload depends on backend DTO/input
+```
+
+For dependent fullstack work:
+
+```txt
+1. backend subagent implements or confirms API contract
+2. orchestrator extracts final backend contract
+3. frontend subagent consumes that contract
+4. testing agent verifies frontend API consumer alignment
+5. backend tests run through testing gate
+```
+
+Do not run frontend implementation from guessed API contracts.
+
+---
+
+## 7. Routing table
+
+| Ticket signal                                                                                  | Target repo              |
+| ---------------------------------------------------------------------------------------------- | ------------------------ |
+| Main API, GraphQL, REST, DDD module, TypeORM, jobs, referrals, organizations, talents, rewards | `uc-talent-backend/`     |
+| CV parsing, UPP, job recommendation, queue consumers, candidate processing                     | `uc-backend-fastapi/`    |
+| embeddings, vector search, semantic ranking, OpenSearch/Elasticsearch indexing                 | `uc-embedding-fastapi/`  |
+| public site, job board, talent portal, Next.js SSR                                             | `uc-frontend-nextjs-v1/` |
+| ATS dashboard, HR workflow, candidate pipeline, applicant management UI                        | `uc-ats-react-app/`      |
+| Unchain Labs site, insights, marketing pages, AEO articles                                     | `ucl-web/`               |
+| CMS schema, Strapi content types, FAQ/article/legal content                                    | `ucl-web-cms/`           |
+| UCTalent FAQ, articles, roadmap from CMS                                                       | `ucl-web-cms/` + `uc-frontend-nextjs-v1/` |
+
+When unclear, inspect minimal relevant files and state the assumption.
+
+---
+
+## 8. Repo-specific rules (load on demand)
+
+Do not apply NestJS DDD rules to FastAPI services. Do not use `mui-frontend` on `ucl-web/`.
+
+| Repo | Skill | Rule file |
+| ---- | ----- | --------- |
+| `uc-talent-backend/` | `implement-backend` | `backend-architecture`, `backend-coding-standards`, `backend-project-architechture` |
+| `uc-backend-fastapi/`, `uc-embedding-fastapi/` | `implement-fastapi` | `backend-fastapi` |
+| `uc-frontend-nextjs-v1/`, `uc-ats-react-app/` | `implement-frontend`, `mui-frontend` | `frontend-coding-standards` |
+| `ucl-web/` | `implement-ucl-web` | `ucl-web-frontend` |
+| `ucl-web-cms/` | `implement-strapi-cms` | `strapi-cms` |
+
+Backend V2 only under `uc-talent-backend/src/modules/*` — not legacy `src/domains/*`. Do not create migrations or DDL unless the user explicitly approves.
+
+For fullstack tickets, backend owns the API contract; frontend must consume the confirmed contract.
+
+---
+
+## 9. Testing and verification
+
+Testing agent is a verification agent, not backend-only.
+
+Use `testing` for:
+
+```txt
+- backend lint/test verification
+- frontend API consumer verification
+- frontend/backend contract alignment
+```
+
+Backend verification commands:
+
+```bash
+cd uc-talent-backend && pnpm lint && pnpm test
+cd uc-backend-fastapi && make lint && pytest
+cd uc-embedding-fastapi && make lint && pytest
+```
+
+Frontend verification commands:
+
+```bash
+cd uc-frontend-nextjs-v1 && pnpm lint && pnpm typecheck && pnpm build
+cd uc-ats-react-app && pnpm lint && pnpm typecheck && pnpm build
+cd ucl-web && pnpm lint && pnpm build
+cd ucl-web-cms && pnpm build
+```
+
+Ask user before running terminal commands.
+
+Do not claim tests, lint, typecheck, or build passed unless they actually ran and passed.
+
+If commands are not run, report exact commands as not run.
+
+---
+
+## 10. API contract gate
+
+For any fullstack ticket, the orchestrator/testing agent must check frontend/backend contract alignment.
+
+Check:
+
+* REST endpoint path or GraphQL operation name
+* HTTP method
+* route params
+* query params
+* request body/input
+* required vs optional fields
+* response shape
+* enum/status values
+* date/time format
+* money/currency format
+* pagination/filter/sort params
+* error response shape
+* auth/permission assumptions
+
+For CMS tickets (`ucl-web-cms/` → consumers):
+
+* Strapi content type API slug
+* field names in `schema.json` vs consumer parsers
+* `populate` / `filters` in `strapiFind` or `cmsService`
+* `draftAndPublish` / `publicationState`
+* media URLs (GCS)
+
+If mismatch exists, route back to the correct implementation agent.
+
+Do not complete a fullstack ticket with known contract mismatch.
+
+---
+
+## 11. Command policy
+
+Always ask before running terminal commands.
+
+Before asking, explain why the command is needed.
+
+Do not automatically run:
+
+```txt
+install
+lint
+test
+typecheck
+build
+migration
+DDL
+deploy
+destructive git commands
+```
+
+without user approval.
+
+Run commands from inside the target repo:
+
+```bash
+cd <repo> && <command>
+```
+
+Do not run repo commands from the parent folder unless the command is explicitly designed for the parent workspace.
+
+---
+
+## 12. File management
+
+Prefer editing existing files over creating new files.
+
+Create new files only when required by the architecture or existing pattern.
+
+Do not create `.md`, `.mdc`, documentation, or summary files after coding unless the user explicitly asks.
+
+Do not copy `.cursor/` into child repos unless the user intentionally wants per-repo config.
+
+Shared agent config belongs at the parent workspace.
+
+---
+
+## 13. Scope control
+
+Keep diffs small and acceptance-criteria focused.
+
+Do not perform broad refactors unless the Jira ticket requires them.
+
+Do not migrate legacy code to Backend V2 unless explicitly requested.
+
+Do not introduce new libraries unless necessary and approved.
+
+Do not change unrelated formatting.
+
+Do not modify multiple repos just because they exist.
+
+---
+
+## 14. Final response requirements
+
+At the end of a task, report:
+
+```txt
+- Jira ticket key
+- summary
+- repos touched
+- acceptance criteria status
+- files changed
+- API contract check status
+- testing/verification status
+- commands run or not run
+- remaining risks or assumptions
+```
+
+Use clear status:
+
+```txt
+passed
+failed
+not_run
+not_applicable
+blocked
+```
+
+Do not hide skipped verification.
+
+Do not claim completion if backend tests fail or frontend/backend contract mismatch remains.
+
+---
+
+## 15. Hard rules
+
+* Run from the parent workspace.
+* Jira MCP first when a Jira key is provided.
+* Do not guess missing ticket details.
+* Do not guess attachment content.
+* Route by acceptance criteria.
+* Use **Codegraph MCP** before grep/Read exploration on indexed source (§4.2).
+* Use parallel subagents only when safe.
+* Backend owns API contracts.
+* Frontend must consume the confirmed contract.
+* Testing agent verifies backend and frontend API contract alignment.
+* Ask before terminal commands.
+* Do not create migrations/DDL unless explicitly approved.
+* Do not create markdown/docs unless explicitly requested.
+* Keep changes small, focused, and repo-scoped.

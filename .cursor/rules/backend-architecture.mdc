@@ -1,0 +1,493 @@
+---
+description: UC Talent Backend V2 DDD Hexagonal architecture rules. Layer dependencies, ports/adapters, and use-case orchestration. Applies to uc-talent-backend/src/modules.
+globs: uc-talent-backend/src/modules/**/*.ts
+alwaysApply: false
+---
+
+Before exploring or editing module code, use **Codegraph MCP** (`codegraph_explore`, `codegraph_callers`) per `uctalent-workflow.mdc` §4.2 — prefer over grep/Read for symbol lookup and Port In → UseCase → Port Out tracing.
+
+## 1. Dependency rule
+
+Allowed dependency direction:
+
+```txt
+presentation → application → domain
+infrastructure → application → domain
+```
+
+Forbidden dependency direction:
+
+```txt
+domain → application
+domain → infrastructure
+domain → presentation
+application → presentation
+application → infrastructure implementation
+presentation → infrastructure
+```
+
+The domain layer must stay independent.
+
+The application layer orchestrates use cases.
+
+The presentation layer adapts external input/output.
+
+The infrastructure layer adapts databases, queues, APIs, files, and external systems.
+
+---
+
+## 2. Layer responsibilities
+
+### Presentation
+
+Location:
+
+```txt
+src/modules/<module>/presentation/
+```
+
+Owns:
+
+* REST controllers
+* GraphQL resolvers
+* request DTOs
+* response DTOs
+* transport mappers
+* guards/decorators specific to transport
+* Swagger/OpenAPI decorators if used
+
+Presentation may depend on:
+
+```txt
+application/ports/in
+application/use-cases result types
+presentation DTOs/mappers
+```
+
+Presentation must not depend on:
+
+```txt
+domain entities directly for response shaping
+infrastructure repositories
+TypeORM repositories
+external API clients
+DataSource
+```
+
+---
+
+### Application
+
+Location:
+
+```txt
+src/modules/<module>/application/
+```
+
+Owns:
+
+* use cases
+* commands
+* queries
+* application services
+* ports in
+* ports out
+* application result/output models
+* orchestration
+* transaction boundary coordination
+
+Application may depend on:
+
+```txt
+domain/
+application/ports/out
+```
+
+Application must not depend on:
+
+```txt
+presentation DTOs
+controllers/resolvers
+infrastructure implementations
+TypeORM entities
+NestJS decorators in application models
+```
+
+---
+
+### Domain
+
+Location:
+
+```txt
+src/modules/<module>/domain/
+```
+
+Owns:
+
+* aggregates
+* entities
+* value objects
+* domain services
+* domain events
+* business invariants
+* domain errors
+* domain enums
+
+Domain must not depend on NestJS, TypeORM, GraphQL, HTTP, database, queues, or external APIs.
+
+Domain must not use decorators like:
+
+```txt
+@Entity
+@Column
+@ObjectType
+@Field
+@Injectable
+@Controller
+```
+
+Domain is pure TypeScript.
+
+---
+
+### Infrastructure
+
+Location:
+
+```txt
+src/modules/<module>/infrastructure/
+```
+
+Owns:
+
+* TypeORM entities
+* ORM repositories
+* persistence mappers
+* external API adapters
+* queue adapters
+* storage adapters
+* email adapters
+* OpenSearch/Elasticsearch adapters
+* provider implementations for ports out
+
+Infrastructure may depend on:
+
+```txt
+application/ports/out
+domain/
+```
+
+Infrastructure must not expose ORM entities to presentation.
+
+---
+
+## 3. Ports
+
+Use **Port In** for use cases callable from presentation.
+
+Use **Port Out** for dependencies implemented by infrastructure.
+
+Canonical locations:
+
+```txt
+src/modules/<module>/application/ports/in/
+src/modules/<module>/application/ports/out/
+```
+
+Controller/resolver should inject **Port In**, not concrete use case classes, when the module follows token-based hexagonal style.
+
+Good:
+
+```typescript
+export const CREATE_JOB_PORT = Symbol('CREATE_JOB_PORT');
+
+@Controller('jobs')
+export class JobController {
+  constructor(
+    @Inject(CREATE_JOB_PORT)
+    private readonly createJob: CreateJobPort,
+  ) {}
+}
+```
+
+Bad:
+
+```typescript
+@Controller('jobs')
+export class JobController {
+  constructor(private readonly createJobUseCase: CreateJobUseCase) {}
+}
+```
+
+Use cases implement Port In.
+
+Infrastructure adapters implement Port Out.
+
+---
+
+## 4. Mapping ownership
+
+| Mapping                                | Layer                             | Location                                 |
+| -------------------------------------- | --------------------------------- | ---------------------------------------- |
+| Request DTO → Command/Query            | Presentation                      | `presentation/mappers/`                  |
+| Application Result → Response DTO      | Presentation                      | `presentation/mappers/`                  |
+| Domain ↔ ORM Entity                    | Infrastructure                    | `infrastructure/persistence/**/mappers/` |
+| External API response → internal model | Infrastructure/Application mapper |                                          |
+| Business validation                    | Domain/Application                |                                          |
+| Transport validation                   | Presentation DTO                  |                                          |
+
+Do not import presentation DTOs into application.
+
+Do not import ORM entities into domain or presentation.
+
+Do not expose ORM entities as API responses.
+
+---
+
+## 5. Controller / resolver flow
+
+Controller and resolver flow:
+
+```txt
+Request DTO / GraphQL Input
+→ mapper
+→ Command / Query
+→ Port In
+→ Use Case
+→ Result
+→ mapper
+→ Response DTO / GraphQL Type
+```
+
+Controllers/resolvers must not:
+
+* contain business logic
+* access repositories
+* access DataSource
+* instantiate ORM entities
+* call external APIs
+* perform transaction logic
+* implement domain rules
+
+---
+
+## 6. Use case rules
+
+Use cases live in:
+
+```txt
+src/modules/<module>/application/use-cases/
+```
+
+A use case should:
+
+* implement a Port In interface
+* receive command/query objects
+* orchestrate domain behavior
+* depend only on Port Out interfaces and domain objects
+* return application result/output models
+* keep transaction boundaries explicit when needed
+
+A use case must not:
+
+* import request DTOs
+* return response DTOs
+* import ORM entities
+* import controllers/resolvers
+* use TypeORM directly
+* format HTTP responses
+* contain UI-specific assumptions
+
+---
+
+## 7. Port Out / repository rules
+
+Port Out interfaces live in:
+
+```txt
+src/modules/<module>/application/ports/out/
+```
+
+Infrastructure implementations live in:
+
+```txt
+src/modules/<module>/infrastructure/
+```
+
+Good:
+
+```typescript
+export interface JobRepositoryPort {
+  findById(id: string): Promise<Job | null>;
+  save(job: Job): Promise<Job>;
+}
+```
+
+Repository ports should model application needs, not expose every TypeORM method.
+
+Avoid:
+
+```typescript
+repository.createQueryBuilder(...)
+repository.manager.transaction(...)
+```
+
+inside application use cases unless the existing V2 module explicitly uses a transaction port abstraction.
+
+---
+
+## 8. ORM / persistence rules
+
+TypeORM entities belong in infrastructure only.
+
+Recommended location:
+
+```txt
+src/modules/<module>/infrastructure/persistence/typeorm/entities/
+```
+
+Persistence repositories:
+
+```txt
+src/modules/<module>/infrastructure/persistence/typeorm/repositories/
+```
+
+Persistence mappers:
+
+```txt
+src/modules/<module>/infrastructure/persistence/typeorm/mappers/
+```
+
+Domain entity:
+
+```txt
+src/modules/<module>/domain/entities/job.entity.ts
+```
+
+ORM entity:
+
+```txt
+src/modules/<module>/infrastructure/persistence/typeorm/entities/job.orm-entity.ts
+```
+
+Do not merge these two models.
+
+Do not put `@Entity`, `@Column`, `@ManyToOne`, `@CreateDateColumn` in domain entities.
+
+---
+
+## 9. Transactions
+
+Transaction boundaries belong to application workflow, but implementation details belong to infrastructure.
+
+Preferred options:
+
+```txt
+application use case → transaction port
+application service → unit of work port
+infrastructure → TypeORM DataSource implementation
+```
+
+Avoid:
+
+```txt
+controller → DataSource
+use case → TypeORM repository directly
+domain → transaction
+```
+
+Do not create migrations or perform DDL unless the user explicitly approves.
+
+---
+
+## 10. Domain events
+
+Domain events belong in:
+
+```txt
+src/modules/<module>/domain/events/
+```
+
+Application event handlers belong in:
+
+```txt
+src/modules/<module>/application/event-handlers/
+```
+
+Infrastructure event publishers/subscribers belong in:
+
+```txt
+src/modules/<module>/infrastructure/
+```
+
+Use past-tense event names:
+
+```txt
+JobApplicationSubmittedEvent
+TalentProfileUpdatedEvent
+```
+
+Do not use events for simple local method calls unless decoupling is useful.
+
+---
+
+## 11. API contract ownership
+
+For fullstack Jira tickets, backend owns the API contract.
+
+When backend changes an API consumed by frontend, return the final contract to the orchestrator/testing agent:
+
+```json
+{
+  "operation_type": "REST | GraphQL",
+  "operation": "endpoint path or query/mutation name",
+  "method": "GET | POST | PATCH | DELETE | GraphQL",
+  "request": {},
+  "response": {},
+  "errors": [],
+  "auth": "required | optional | unknown",
+  "pagination": {},
+  "filters": {},
+  "sort": {},
+  "enums": {}
+}
+```
+
+Frontend must consume this contract exactly.
+
+---
+
+## 12. Legacy code policy
+
+If the ticket touches old backend code outside `src/modules/`:
+
+* inspect existing pattern first
+* make the smallest safe change
+* do not migrate legacy code to V2 unless explicitly requested
+* do not mix V2 folders into old domains casually
+* state clearly when a change is legacy vs V2
+
+New backend V2 code should go under:
+
+```txt
+src/modules/<module>/
+```
+
+---
+
+## 13. Review checklist
+
+Before completing V2 backend work, verify:
+
+* New code is under `src/modules/<module>/`
+* Dependencies point inward
+* Domain is pure TypeScript
+* Application has no DTO/ORM/controller imports
+* Presentation injects Port In or follows existing V2 token pattern
+* Infrastructure implements Port Out
+* ORM entities stay in infrastructure
+* Mappers are in the correct layer
+* API contract is clear if frontend consumes it
+* No DDL/migration was created without approval
+* No broad legacy migration was introduced

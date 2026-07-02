@@ -1,0 +1,24 @@
+---
+description: Domain knowledge base — read before implementing business logic or APIs
+alwaysApply: true
+---
+
+# Domain Knowledge Base
+
+Before adding use cases, ports, endpoints, or business logic:
+
+1. Read `docs/INDEX.md` and `docs/OWNERSHIP.md`
+2. Read `docs/domains/<module>/` for the target NestJS module
+3. For cross-repo work, read `docs/contracts/`
+4. For FastAPI/embedding, read `docs/services/fastapi/` or `docs/services/embedding/`
+5. For frontend API consumers, read `docs/contracts/frontend-api-map.md`
+
+## Anti-duplication rules
+
+- Do not duplicate logic already in a use case — extend the use case or add a port out
+- Do not implement CV parsing, UPP runtime, or embedding index in NestJS
+- Do not copy OpenAPI schemas into markdown — link Swagger instead
+
+## Maintenance
+
+When business rules change, update the relevant `docs/domains/<module>/` file using templates in `docs/_templates/`.

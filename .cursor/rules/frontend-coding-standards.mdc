@@ -1,0 +1,523 @@
+---
+description: UC Talent frontend coding standards for Next.js and React ATS apps. Applies only to uc-frontend-nextjs-v1 and uc-ats-react-app.
+globs: "{uc-frontend-nextjs-v1,uc-ats-react-app}/**/*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+# Frontend Coding Standards — UC Talent
+
+Applies to:
+
+```txt
+uc-frontend-nextjs-v1/
+uc-ats-react-app/
+```
+
+Use this rule for frontend implementation, UI changes, API consumers, React hooks, forms, and state management.
+
+Do not apply this rule to backend or FastAPI repos.
+
+Before exploring hooks/API clients/components, use **Codegraph MCP** per `uctalent-workflow.mdc` §4.2.
+
+---
+
+## 1. File management
+
+Do not create markdown files after coding unless the user explicitly asks.
+
+Avoid creating new files unless they are necessary for functionality, separation, or consistency with the existing pattern.
+
+Prefer editing existing files over creating new ones.
+
+Before adding a new file, check:
+
+* Is there an existing component/hook/service that already owns this responsibility?
+* Is there an existing folder convention nearby?
+* Can this be added safely to an existing module?
+* Will this new file reduce complexity, or just add fragmentation?
+
+Do not create duplicate components, hooks, services, API clients, or constants when an existing one can be extended.
+
+---
+
+## 2. Workspace and repo scope
+
+Use workspace-root paths.
+
+Valid frontend repos:
+
+```txt
+uc-frontend-nextjs-v1/
+uc-ats-react-app/
+```
+
+Do not edit both frontend repos unless the ticket requires both.
+
+Do not edit backend repos unless the orchestrator routes backend work separately.
+
+For fullstack tickets, frontend must consume the API contract produced by backend.
+
+---
+
+## 3. Command execution
+
+Always ask the user before running terminal commands.
+
+Before proposing a command, explain why it is needed.
+
+Do not automatically run:
+
+```txt
+pnpm install
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
+deploy commands
+```
+
+without approval.
+
+Recommended verification commands:
+
+```bash
+cd uc-frontend-nextjs-v1 && pnpm lint && pnpm typecheck && pnpm build
+```
+
+```bash
+cd uc-ats-react-app && pnpm lint && pnpm typecheck && pnpm build
+```
+
+If commands are not approved or not run, report them as not run and provide the exact commands for the user.
+
+---
+
+## 4. TypeScript
+
+Use TypeScript with strong types.
+
+Avoid `any`.
+
+Use `unknown` only when the value is genuinely unknown, then narrow it.
+
+Use `type` for unions, utility types, and API models.
+
+Use `interface` for extendable object shapes, component props when the project style prefers it, or shared contracts.
+
+Prefer explicit function return types for:
+
+* exported functions
+* API client functions
+* hooks
+* utility functions
+* complex callbacks
+
+Example:
+
+```typescript
+export const useJobDetail = (id: string): UseQueryResult<JobDetail> => {
+  return useQuery({
+    queryKey: ['job-detail', id],
+    queryFn: () => getJobDetail(id),
+  });
+};
+```
+
+Keep component props typed.
+
+Do not rely on implicit `any`.
+
+---
+
+## 5. React component style
+
+Use functional components with React hooks.
+
+Prefer small components with clear responsibility.
+
+Do not put large business workflows directly inside JSX.
+
+Extract when useful:
+
+* API calls into service/client files
+* data transformations into helpers
+* form logic into hooks
+* repeated UI blocks into components
+
+Avoid over-extracting for one-off simple UI.
+
+Name components clearly:
+
+```txt
+CandidateCard
+JobApplicationForm
+ReferralRewardBadge
+```
+
+Use descriptive variable names.
+
+Avoid unclear names like:
+
+```txt
+data2
+temp
+foo
+handleClick2
+```
+
+---
+
+## 6. MUI and styling
+
+Use MUI and `sx` as the default UI/styling approach.
+
+Do not introduce shadcn, Tailwind-only components, or unrelated UI libraries unless the existing file already uses them or the user explicitly asks.
+
+Prefer:
+
+```tsx
+<Box sx={{ display: 'flex', gap: 2 }}>
+  ...
+</Box>
+```
+
+Follow existing MUI patterns in the target repo.
+
+Use theme values when possible:
+
+```tsx
+sx={{
+  color: 'text.primary',
+  bgcolor: 'background.paper',
+  borderRadius: 2,
+}}
+```
+
+Avoid hardcoded colors, spacing, and magic values unless matching an existing design.
+
+For responsive UI, use MUI breakpoints:
+
+```tsx
+sx={{
+  display: { xs: 'block', md: 'flex' },
+}}
+```
+
+---
+
+## 7. API calls and contracts
+
+For any frontend change that calls backend or consumes backend data, verify the API contract.
+
+Check:
+
+* endpoint path or GraphQL operation name
+* HTTP method
+* request body/input fields
+* query params
+* route params
+* required vs optional fields
+* response fields used by UI
+* enum/status values
+* date/time format
+* money/currency format
+* pagination fields
+* filter/sort fields
+* error response shape
+* auth/permission assumptions
+
+Do not guess API shapes.
+
+If backend contract is unclear, inspect backend code or ask the orchestrator/testing agent to verify the contract.
+
+For fullstack tickets:
+
+```txt
+Backend owns the API contract.
+Frontend consumes the final backend contract.
+Testing agent verifies frontend API consumer alignment.
+```
+
+Do not rename frontend fields casually if they map to backend DTOs.
+
+Do not silently change API semantics.
+
+---
+
+## 8. Data fetching
+
+Follow the existing project pattern.
+
+Common patterns may include:
+
+* React Query
+* custom hooks
+* service/client files
+* GraphQL hooks
+* SSR prefetch/dehydrate in Next.js
+* route-level loaders depending on repo style
+
+Do not introduce a new data fetching pattern if an existing one is already used nearby.
+
+React Query rules:
+
+* use stable `queryKey`
+* include variables in `queryKey`
+* keep `queryFn` typed
+* use `enabled` for conditional queries
+* invalidate related queries after mutations
+* handle loading, empty, and error states
+
+Example:
+
+```typescript
+const query = useQuery({
+  queryKey: ['candidate-detail', candidateId],
+  queryFn: () => getCandidateDetail(candidateId),
+  enabled: Boolean(candidateId),
+});
+```
+
+---
+
+## 9. Forms and validation
+
+Follow the existing form library/pattern in the target repo.
+
+When implementing forms:
+
+* type the form values
+* map UI values to API payload explicitly
+* validate required fields
+* handle submit loading state
+* handle API errors
+* reset or update UI after success if needed
+* avoid sending undefined fields unless the backend accepts them
+
+For fullstack tickets, ensure form payload matches backend DTO/input exactly.
+
+Watch common mismatches:
+
+```txt
+salaryMin vs minSalary
+salaryMax vs maxSalary
+currency vs currencyCode
+cityId vs currentCityId
+noticePeriod vs noticePeriodValue
+```
+
+---
+
+## 10. State management
+
+Use the existing state management approach.
+
+Possible patterns:
+
+* React local state
+* React Query server state
+* Zustand
+* Redux Toolkit
+* context
+
+Do not add global state for local UI state.
+
+Do not put server state in global client state when React Query or existing API hooks already own it.
+
+Keep state close to where it is used.
+
+---
+
+## 11. Error, loading, and empty states
+
+Every API-driven UI should handle:
+
+* loading state
+* empty state
+* error state
+* success state when relevant
+
+Avoid blank screens.
+
+Avoid uncaught promise errors.
+
+Use existing toast/snackbar/error display patterns.
+
+Do not leave `console.log`, `debugger`, or temporary alerts.
+
+---
+
+## 12. Accessibility and responsive UI
+
+When touching UI, keep it responsive and accessible.
+
+Check:
+
+* clickable elements have clear labels
+* buttons use `button` semantics
+* forms have labels or accessible names
+* images have `alt` when meaningful
+* keyboard interaction is not broken
+* modal/dialog focus behavior follows existing MUI pattern
+* mobile layout does not overflow
+
+Use responsive `sx` patterns instead of fixed desktop-only layouts.
+
+---
+
+## 13. Performance
+
+Avoid unnecessary re-renders.
+
+Use `useMemo` and `useCallback` only when they solve a real problem:
+
+* expensive computation
+* stable dependency needed by memoized child
+* stable callback needed by hook dependency
+
+Do not add `useMemo/useCallback` everywhere by default.
+
+Avoid creating large inline objects/arrays in hot render paths if they cause memoized children to re-render.
+
+For large lists, follow existing virtualization/pagination patterns if present.
+
+---
+
+## 14. Next.js-specific rules
+
+For `uc-frontend-nextjs-v1/`:
+
+Follow existing Next.js version and routing style.
+
+Before using a browser-only API, make sure the component is client-side.
+
+Use `"use client"` only when needed.
+
+Avoid turning large route trees into client components unnecessarily.
+
+For SSR/SEO pages:
+
+* keep server data fetching consistent with existing pattern
+* preserve metadata/SEO behavior
+* avoid hydration mismatch
+* keep query prefetch/dehydrate patterns consistent if React Query SSR is used
+
+Do not import server-only modules into client components.
+
+Do not access `window`, `document`, or `localStorage` during SSR.
+
+---
+
+## 15. ATS React app rules
+
+For `uc-ats-react-app/`:
+
+Follow the existing React/Vite structure.
+
+Use existing:
+
+* routing pattern
+* API client pattern
+* MUI theme
+* form pattern
+* state management pattern
+
+Do not introduce Next.js-specific patterns here.
+
+Do not assume SSR behavior in the ATS React app.
+
+---
+
+## 16. Import rules
+
+Follow existing import style.
+
+Prefer absolute aliases if the repo has them.
+
+Avoid deep relative imports when aliases exist.
+
+Sort imports by:
+
+1. external packages
+2. internal aliases
+3. relative imports
+4. styles/assets if existing style places them last
+
+Use type-only imports when appropriate:
+
+```typescript
+import type { CandidateDetail } from '@/types/candidate';
+```
+
+Do not invent aliases without checking the repo config.
+
+---
+
+## 17. Constants and hardcoding
+
+Avoid hardcoded values when they belong in:
+
+* constants
+* config
+* enum mappings
+* theme values
+* shared option lists
+
+Good candidates for constants:
+
+* status labels
+* status colors
+* dropdown options
+* route paths
+* API paths
+* pagination defaults
+* currency options
+* notice period options
+
+Do not hardcode backend enum labels if there is an existing mapping.
+
+---
+
+## 18. Comments
+
+Write comments only for non-obvious logic.
+
+Do not comment obvious JSX or simple assignments.
+
+Vietnamese or English comments are acceptable depending on nearby code style.
+
+Prefer clear code over comments.
+
+---
+
+## 19. Verification checklist
+
+Before completing frontend work, check:
+
+* TypeScript types are correct
+* imports are complete
+* no unused variables/imports
+* no `any` unless unavoidable and justified
+* no `console.log` or `debugger`
+* UI is responsive
+* loading/error/empty states exist for API-driven UI
+* form payload matches backend input
+* response fields used by UI exist in backend output
+* enum/status values match backend
+* no unrelated files were reformatted
+* no markdown files were created unless requested
+* verification commands were either run with approval or reported as not run
+
+---
+
+## 20. Final response requirements
+
+When reporting frontend changes, include:
+
+* repo touched
+* files changed
+* API contract checked or not applicable
+* frontend verification commands run or not run
+* risks or assumptions
+
+Do not claim lint/typecheck/build passed unless they actually ran and passed.

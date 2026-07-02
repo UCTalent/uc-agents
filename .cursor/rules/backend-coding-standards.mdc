@@ -1,0 +1,346 @@
+---
+description: UC Talent Backend V2 coding standards for uc-talent-backend. TypeScript style, naming, NestJS usage, DTO/command separation, and error handling. Apply when editing src/modules/**/*.ts.
+globs: uc-talent-backend/src/modules/**/*.ts
+alwaysApply: false
+---
+## 1. Formatting
+
+Use the repo Prettier/ESLint config as source of truth.
+
+Expected style:
+
+* single quotes
+* semicolons
+* 2 spaces
+* trailing commas where configured
+* arrow parens always
+* LF line endings
+* readable line length
+
+Do not reformat unrelated files.
+
+---
+
+## 2. Commands
+
+Use `pnpm`.
+
+Common commands:
+
+```bash
+cd uc-talent-backend && pnpm lint
+cd uc-talent-backend && pnpm test
+cd uc-talent-backend && pnpm test:integration
+```
+
+Ask before running commands.
+
+Do not run install, build, migrations, DDL, or destructive commands without explicit approval.
+
+---
+
+## 3. TypeScript
+
+Use explicit return types on all functions and public class methods.
+
+Use type-only imports:
+
+```typescript
+import type { CreateJobCommand } from './create-job.command';
+```
+
+Avoid `any`.
+
+Use `unknown` only when truly unknown, then narrow it.
+
+Handle null explicitly:
+
+```typescript
+const job = await this.jobRepository.findById(id);
+
+if (!job) {
+  throw new JobNotFoundError(id);
+}
+```
+
+Prefer `Promise<T | null>` when null is possible.
+
+Use `readonly` for immutable constructor dependencies and immutable properties.
+
+Prefer small, focused functions.
+
+---
+
+## 4. Imports
+
+Import order:
+
+1. external packages
+2. internal aliases
+3. relative imports
+
+Use blank line between groups.
+
+Prefer aliases over deep relative imports.
+
+Good:
+
+```typescript
+import { Inject, Injectable } from '@nestjs/common';
+
+import type { JobRepositoryPort } from '@modules/job/application/ports/out/job-repository.port';
+import { Job } from '@modules/job/domain/entities/job.entity';
+
+import { CreateJobCommand } from './create-job.command';
+```
+
+Bad:
+
+```typescript
+import { Job } from '../../../../domain/entities/job.entity';
+```
+
+Check `uc-talent-backend/tsconfig.json` before inventing aliases.
+
+---
+
+## 5. Naming
+
+| Item                | Convention               | Example                  |
+| ------------------- | ------------------------ | ------------------------ |
+| Files               | kebab-case               | `create-job.use-case.ts` |
+| Modules             | kebab-case folder        | `job-application/`       |
+| Classes             | PascalCase + suffix      | `CreateJobUseCase`       |
+| Use cases           | PascalCase + `UseCase`   | `CreateJobUseCase`       |
+| Commands            | PascalCase + `Command`   | `CreateJobCommand`       |
+| Queries             | PascalCase + `Query`     | `FindJobsQuery`          |
+| Results             | PascalCase + `Result`    | `CreateJobResult`        |
+| Port In             | PascalCase + `Port`      | `CreateJobPort`          |
+| Port Out            | PascalCase + `Port`      | `JobRepositoryPort`      |
+| DTOs                | PascalCase + `Dto`       | `CreateJobRequestDto`    |
+| ORM entities        | PascalCase + `OrmEntity` | `JobOrmEntity`           |
+| Mappers             | PascalCase + `Mapper`    | `JobPersistenceMapper`   |
+| Variables/functions | camelCase                | `jobTitle`, `findById`   |
+| Booleans            | is/has/can/should        | `isActive`               |
+| Constants           | UPPER_SNAKE_CASE         | `CREATE_JOB_PORT`        |
+
+---
+
+## 6. Layer naming
+
+Use layer-specific suffixes.
+
+Presentation:
+
+```txt
+*.controller.ts
+*.resolver.ts
+*.request.dto.ts
+*.response.dto.ts
+*.presentation.mapper.ts
+```
+
+Application:
+
+```txt
+*.use-case.ts
+*.command.ts
+*.query.ts
+*.result.ts
+*.port.ts
+*.application-service.ts
+```
+
+Domain:
+
+```txt
+*.entity.ts
+*.value-object.ts
+*.domain-service.ts
+*.domain-event.ts
+*.domain-error.ts
+```
+
+Infrastructure:
+
+```txt
+*.orm-entity.ts
+*.repository.ts
+*.persistence.mapper.ts
+*.adapter.ts
+*.provider.ts
+```
+
+---
+
+## 7. NestJS rules
+
+Use NestJS only in presentation and infrastructure composition.
+
+Allowed NestJS decorators:
+
+```txt
+presentation/
+infrastructure/
+module files
+```
+
+Avoid NestJS decorators in:
+
+```txt
+domain/
+application/commands
+application/results
+application/ports
+```
+
+Use constructor injection.
+
+Use `private readonly` dependencies.
+
+Use `@Inject(TOKEN)` for ports/tokens.
+
+Do not inject concrete infrastructure into presentation or application when a port exists.
+
+---
+
+## 8. Error handling
+
+Prefer domain/application errors inside use cases:
+
+```typescript
+throw new JobNotFoundError(id);
+```
+
+Map domain/application errors to HTTP/GraphQL errors in presentation.
+
+Use NestJS exceptions in controllers/resolvers only when that is the existing pattern.
+
+Avoid generic:
+
+```typescript
+throw new Error('...');
+```
+
+for expected domain/application failures.
+
+Do not swallow errors silently.
+
+Avoid `console.log`.
+
+Use the existing logger if the repo has one.
+
+---
+
+## 9. DTO / command / result separation
+
+Do not pass request DTOs into use cases.
+
+Good:
+
+```txt
+CreateJobRequestDto
+→ CreateJobPresentationMapper.toCommand(dto)
+→ CreateJobCommand
+→ CreateJobUseCase
+→ CreateJobResult
+→ CreateJobPresentationMapper.toResponse(result)
+→ CreateJobResponseDto
+```
+
+Bad:
+
+```txt
+Controller → CreateJobUseCase.execute(dto)
+```
+
+Application commands/results should not import class-validator, Swagger, GraphQL, or NestJS decorators.
+
+---
+
+## 10. ORM / database
+
+ORM entities stay in infrastructure.
+
+Use explicit snake_case column names:
+
+```typescript
+@Column({ name: 'job_number', type: 'bigint' })
+jobNumber: number;
+
+@CreateDateColumn({ name: 'created_at' })
+createdAt: Date;
+```
+
+Database naming:
+
+* tables: plural snake_case
+* columns: snake_case
+* foreign keys: `_id`
+* timestamps: `created_at`, `updated_at`, `deleted_at`
+* TypeScript properties: camelCase
+
+Do not create migrations or perform DDL unless user explicitly approves.
+
+---
+
+## 11. API contract rules
+
+When changing REST/GraphQL behavior, preserve contract unless the ticket requires change.
+
+If contract changes, state:
+
+* operation name/path
+* method
+* request input/body
+* response shape
+* error shape
+* enum/status values
+* auth requirements
+* pagination/filter/sort params
+
+Watch for:
+
+* cents vs display amount
+* currency format
+* date/time format
+* enum string values
+* nullable fields
+* pagination field names
+* `camelCase` vs `snake_case`
+* frontend field mapping
+
+---
+
+## 12. AI assistant rules
+
+When coding:
+
+1. inspect existing V2 module patterns first
+2. keep changes inside relevant module
+3. prefer editing existing files over creating new ones
+4. create new files only when required by V2 structure
+5. do not create docs unless user asks
+6. do not create migrations/DDL unless approved
+7. ask before terminal commands
+8. keep diffs small
+9. avoid legacy-to-v2 migration unless requested
+10. return API contract when frontend is affected
+
+---
+
+## 13. Review checklist
+
+Before completing:
+
+* Are imports sorted and using aliases?
+* Are return types explicit?
+* Is `any` avoided?
+* Are DTOs kept out of application?
+* Are ORM entities kept out of domain/application?
+* Are NestJS decorators kept out of domain/application models?
+* Are controllers/resolvers thin?
+* Are ports used where the V2 module expects them?
+* Is API contract clear?
+* Were commands requested before running?
+* Were migrations/DDL avoided unless approved?

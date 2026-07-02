@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp",
+        "--path",
+        "/home/bagdnh/uc-project/uc-talent"
+      ]
+    },
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2"
+    }
+  }
+}
